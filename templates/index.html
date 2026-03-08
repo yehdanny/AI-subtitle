@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 字幕生成器</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f0f0f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ─── Top Bar ─────────────────────────────────────────── */
+    #topbar {
+      background: #1a1a1a;
+      color: #fff;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    #topbar h1 { font-size: 16px; font-weight: 600; letter-spacing: 0.5px; }
+    #topbar .spacer { flex: 1; }
+
+    /* model & language selects */
+    select {
+      background: #2e2e2e;
+      color: #ccc;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    /* ─── Upload Zone ─────────────────────────────────────── */
+    #upload-zone {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #drop-area {
+      border: 2px dashed #aaa;
+      border-radius: 12px;
+      padding: 60px 80px;
+      text-align: center;
+      cursor: pointer;
+      background: #fff;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    #drop-area.drag-over { border-color: #f0a500; background: #fffbf0; }
+    #drop-area .icon { font-size: 48px; margin-bottom: 12px; color: #999; }
+    #drop-area p { color: #555; font-size: 15px; }
+    #drop-area span { color: #f0a500; font-weight: 600; }
+    #file-input { display: none; }
+
+    /* ─── Main Layout ─────────────────────────────────────── */
+    #main {
+      display: none;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ─── Left: Video Panel ───────────────────────────────── */
+    #video-panel {
+      flex: 0 0 62%;
+      display: flex;
+      flex-direction: column;
+      background: #000;
+      position: relative;
+    }
+
+    #video-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    video {
+      max-width: 100%;
+      max-height: 100%;
+      display: block;
+    }
+
+    /* Subtitle overlay */
+    #subtitle-overlay {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.72);
+      color: #fff;
+      padding: 6px 18px;
+      border-radius: 4px;
+      font-size: 18px;
+      font-weight: 500;
+      text-align: center;
+      max-width: 90%;
+      pointer-events: none;
+      white-space: pre-wrap;
+      display: none;
+    }
+
+    /* Controls bar */
+    #controls {
+      background: #1a1a1a;
+      padding: 8px 16px 10px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    /* Timeline scrubber */
+    #timeline-wrap {
+      position: relative;
+      height: 14px;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    #timeline-track {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 100%;
+      height: 4px;
+      background: #444;
+      border-radius: 2px;
+    }
+    #timeline-buffered {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      left: 0;
+      width: 0%;
+      height: 4px;
+      background: #666;
+      border-radius: 2px;
+    }
+    #timeline-progress {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      left: 0;
+      width: 0%;
+      height: 4px;
+      background: #f0a500;
+      border-radius: 2px;
+      pointer-events: none;
+    }
+    #timeline-thumb {
+      position: absolute;
+      top: 50%;
+      left: 0%;
+      transform: translate(-50%, -50%);
+      width: 14px;
+      height: 14px;
+      background: #f0a500;
+      border-radius: 50%;
+      pointer-events: none;
+      transition: transform 0.1s;
+    }
+    #timeline-thumb:hover { transform: translate(-50%, -50%) scale(1.3); }
+
+    /* Control row */
+    #ctrl-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    #time-display { font-size: 13px; color: #ccc; min-width: 60px; }
+
+    .ctrl-btn {
+      background: none;
+      border: none;
+      color: #ddd;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 4px;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .ctrl-btn:hover { color: #f0a500; }
+
+    #speed-btn {
+      background: none;
+      border: 1px solid #555;
+      color: #ccc;
+      border-radius: 4px;
+      padding: 2px 7px;
+      font-size: 12px;
+      cursor: pointer;
+      margin-left: auto;
+    }
+    #speed-btn:hover { border-color: #f0a500; color: #f0a500; }
+
+    /* ─── Right: Subtitle Panel ──────────────────────────── */
+    #subtitle-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      border-left: 1px solid #e0e0e0;
+      overflow: hidden;
+    }
+
+    #subtitle-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid #e8e8e8;
+      flex-shrink: 0;
+      background: #fafafa;
+      gap: 8px;
+    }
+    #subtitle-header span {
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    #transcribe-btn {
+      background: #f0a500;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #transcribe-btn:hover:not(:disabled) { background: #d49200; }
+    #transcribe-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+    #export-btn {
+      background: #fff;
+      color: #555;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: none;
+    }
+    #export-btn:hover { border-color: #f0a500; color: #f0a500; }
+
+    /* Loading spinner */
+    #loading {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 14px;
+      color: #888;
+      font-size: 14px;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid #eee;
+      border-top-color: #f0a500;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Subtitle list */
+    #subtitle-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+    #subtitle-list::-webkit-scrollbar { width: 6px; }
+    #subtitle-list::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+
+    .sub-item {
+      display: flex;
+      gap: 12px;
+      padding: 8px 16px;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: background 0.15s;
+      align-items: flex-start;
+    }
+    .sub-item:hover { background: #fafafa; }
+    .sub-item.active {
+      border-left-color: #f0a500;
+      background: #fffbf0;
+    }
+
+    .sub-times {
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 72px;
+    }
+    .sub-time {
+      font-size: 11.5px;
+      color: #999;
+      font-variant-numeric: tabular-nums;
+      font-family: "SF Mono", "Fira Code", monospace;
+    }
+    .sub-item.active .sub-time { color: #c88400; }
+
+    .sub-text {
+      font-size: 14px;
+      color: #222;
+      line-height: 1.5;
+      flex: 1;
+    }
+    .sub-item.active .sub-text { color: #111; font-weight: 500; }
+
+    /* ─── Status / empty ──────────────────────────────────── */
+    #subtitle-empty {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #bbb;
+      font-size: 14px;
+    }
+
+    /* responsive: stack on narrow screens */
+    @media (max-width: 700px) {
+      #main { flex-direction: column; }
+      #video-panel { flex: 0 0 40vh; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div id="topbar">
+  <h1>AI 字幕生成器</h1>
+  <div class="spacer"></div>
+  <label style="color:#aaa;font-size:13px;">模型</label>
+  <select id="model-select">
+    <option value="tiny">Tiny（最快）</option>
+    <option value="base" selected>Base（推薦）</option>
+    <option value="small">Small</option>
+    <option value="medium">Medium</option>
+    <option value="large">Large（最準）</option>
+  </select>
+  <label style="color:#aaa;font-size:13px;">語言</label>
+  <select id="lang-select">
+    <option value="">自動偵測</option>
+    <option value="zh">中文</option>
+    <option value="en">English</option>
+    <option value="ja">日本語</option>
+    <option value="ko">한국어</option>
+    <option value="fr">Français</option>
+    <option value="de">Deutsch</option>
+    <option value="es">Español</option>
+  </select>
+</div>
+
+<!-- Upload Zone -->
+<div id="upload-zone">
+  <div id="drop-area">
+    <div class="icon">🎬</div>
+    <p>拖曳影片至此，或 <span id="browse-link">點擊瀏覽</span></p>
+    <p style="font-size:12px;color:#aaa;margin-top:8px;">支援 MP4、MKV、MOV、AVI、WebM 等格式</p>
+    <input type="file" id="file-input" accept="video/*" />
+  </div>
+</div>
+
+<!-- Main Layout (hidden until video loaded) -->
+<div id="main" style="display:none;flex:1;overflow:hidden;display:none;">
+
+  <!-- Left: Video Panel -->
+  <div id="video-panel">
+    <div id="video-wrapper">
+      <video id="video" preload="metadata"></video>
+      <div id="subtitle-overlay"></div>
+    </div>
+
+    <div id="controls">
+      <!-- Timeline -->
+      <div id="timeline-wrap">
+        <div id="timeline-track"></div>
+        <div id="timeline-buffered"></div>
+        <div id="timeline-progress"></div>
+        <div id="timeline-thumb"></div>
+      </div>
+
+      <!-- Control row -->
+      <div id="ctrl-row">
+        <span id="time-display">00:00</span>
+        <button class="ctrl-btn" id="btn-back" title="後退 5 秒">⏪</button>
+        <button class="ctrl-btn" id="btn-play" title="播放/暫停">▶</button>
+        <button class="ctrl-btn" id="btn-fwd" title="前進 5 秒">⏩</button>
+        <button id="speed-btn">1x</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Subtitle Panel -->
+  <div id="subtitle-panel">
+    <div id="subtitle-header">
+      <span>字幕清單</span>
+      <div style="display:flex;gap:8px;margin-left:auto;">
+        <button id="export-btn">匯出 SRT</button>
+        <button id="transcribe-btn">產生字幕</button>
+      </div>
+    </div>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      <span id="loading-text">正在分析語音，請稍候…</span>
+    </div>
+
+    <div id="subtitle-empty" style="display:none;">
+      按「產生字幕」開始 AI 語音辨識
+    </div>
+
+    <div id="subtitle-list"></div>
+  </div>
+</div>
+
+<script>
+  // ── State ────────────────────────────────────────────────
+  let currentFilename = null;
+  let segments = [];
+  let currentSegIdx = -1;
+  let isDragging = false;
+  const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  let speedIdx = 2;
+
+  // ── Elements ─────────────────────────────────────────────
+  const uploadZone    = document.getElementById("upload-zone");
+  const main          = document.getElementById("main");
+  const dropArea      = document.getElementById("drop-area");
+  const fileInput     = document.getElementById("file-input");
+  const video         = document.getElementById("video");
+  const overlay       = document.getElementById("subtitle-overlay");
+  const timeDisplay   = document.getElementById("time-display");
+  const timelineWrap  = document.getElementById("timeline-wrap");
+  const timelineProgress = document.getElementById("timeline-progress");
+  const timelineThumb = document.getElementById("timeline-thumb");
+  const timelineBuf   = document.getElementById("timeline-buffered");
+  const btnPlay       = document.getElementById("btn-play");
+  const btnBack       = document.getElementById("btn-back");
+  const btnFwd        = document.getElementById("btn-fwd");
+  const speedBtn      = document.getElementById("speed-btn");
+  const transcribeBtn = document.getElementById("transcribe-btn");
+  const exportBtn     = document.getElementById("export-btn");
+  const subtitleList  = document.getElementById("subtitle-list");
+  const subtitleEmpty = document.getElementById("subtitle-empty");
+  const loadingDiv    = document.getElementById("loading");
+  const loadingText   = document.getElementById("loading-text");
+  const modelSelect   = document.getElementById("model-select");
+  const langSelect    = document.getElementById("lang-select");
+
+  // ── Drag & drop upload ────────────────────────────────────
+  document.getElementById("browse-link").addEventListener("click", () => fileInput.click());
+  dropArea.addEventListener("click", () => fileInput.click());
+
+  dropArea.addEventListener("dragover", e => { e.preventDefault(); dropArea.classList.add("drag-over"); });
+  dropArea.addEventListener("dragleave", () => dropArea.classList.remove("drag-over"));
+  dropArea.addEventListener("drop", e => {
+    e.preventDefault();
+    dropArea.classList.remove("drag-over");
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith("video/")) handleFile(file);
+  });
+
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+
+  function handleFile(file) {
+    // Preview immediately via blob URL
+    video.src = URL.createObjectURL(file);
+    switchToMain();
+
+    // Upload to server
+    const fd = new FormData();
+    fd.append("video", file);
+    fetch("/upload", { method: "POST", body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          currentFilename = data.filename;
+          // Re-point to server URL for transcription endpoint
+          video.src = `/video/${encodeURIComponent(currentFilename)}`;
+        } else {
+          alert("上傳失敗：" + (data.error || "未知錯誤"));
+        }
+      })
+      .catch(() => alert("上傳時發生網路錯誤"));
+  }
+
+  function switchToMain() {
+    uploadZone.style.display = "none";
+    main.style.display = "flex";
+    subtitleEmpty.style.display = "flex";
+    subtitleList.style.display = "none";
+    loadingDiv.style.display = "none";
+    exportBtn.style.display = "none";
+    segments = [];
+    currentSegIdx = -1;
+  }
+
+  // ── Video controls ────────────────────────────────────────
+  video.addEventListener("timeupdate", onTimeUpdate);
+  video.addEventListener("progress", updateBuffered);
+  video.addEventListener("play",  () => btnPlay.textContent = "⏸");
+  video.addEventListener("pause", () => btnPlay.textContent = "▶");
+  video.addEventListener("ended", () => btnPlay.textContent = "▶");
+
+  btnPlay.addEventListener("click", () => video.paused ? video.play() : video.pause());
+  btnBack.addEventListener("click", () => { video.currentTime = Math.max(0, video.currentTime - 5); });
+  btnFwd.addEventListener("click",  () => { video.currentTime = Math.min(video.duration || 0, video.currentTime + 5); });
+
+  speedBtn.addEventListener("click", () => {
+    speedIdx = (speedIdx + 1) % speeds.length;
+    video.playbackRate = speeds[speedIdx];
+    speedBtn.textContent = speeds[speedIdx] + "x";
+  });
+
+  // Timeline scrubbing
+  timelineWrap.addEventListener("mousedown", e => { isDragging = true; seekFromEvent(e); });
+  document.addEventListener("mousemove", e => { if (isDragging) seekFromEvent(e); });
+  document.addEventListener("mouseup",   () => { isDragging = false; });
+  timelineWrap.addEventListener("touchstart", e => { isDragging = true; seekFromTouch(e); }, { passive: true });
+  document.addEventListener("touchmove",  e => { if (isDragging) seekFromTouch(e); }, { passive: true });
+  document.addEventListener("touchend",   () => { isDragging = false; });
+
+  function seekFromEvent(e) {
+    const rect = timelineWrap.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (video.duration) video.currentTime = ratio * video.duration;
+    updateTimeline(ratio);
+  }
+  function seekFromTouch(e) {
+    if (!e.touches[0]) return;
+    const rect = timelineWrap.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.touches[0].clientX - rect.left) / rect.width));
+    if (video.duration) video.currentTime = ratio * video.duration;
+    updateTimeline(ratio);
+  }
+
+  function onTimeUpdate() {
+    const t = video.currentTime;
+    const d = video.duration || 0;
+    const ratio = d ? t / d : 0;
+    updateTimeline(ratio);
+    timeDisplay.textContent = formatTime(t);
+    syncSubtitle(t);
+  }
+
+  function updateTimeline(ratio) {
+    const pct = (ratio * 100).toFixed(2) + "%";
+    timelineProgress.style.width = pct;
+    timelineThumb.style.left = pct;
+  }
+
+  function updateBuffered() {
+    if (!video.duration) return;
+    let buf = 0;
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (video.buffered.start(i) <= video.currentTime) {
+        buf = Math.max(buf, video.buffered.end(i));
+      }
+    }
+    timelineBuf.style.width = ((buf / video.duration) * 100).toFixed(2) + "%";
+  }
+
+  function formatTime(s) {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
+  }
+
+  function formatTimestamp(s) {
+    const m = Math.floor(s / 60);
+    const sec = (s % 60).toFixed(3);
+    return String(m).padStart(2, "0") + ":" + String(Math.floor(s % 60)).padStart(2, "0") + "." +
+      String(Math.round((s % 1) * 1000)).padStart(3, "0");
+  }
+
+  // ── Subtitle sync ─────────────────────────────────────────
+  function syncSubtitle(t) {
+    if (!segments.length) return;
+    let idx = -1;
+    for (let i = 0; i < segments.length; i++) {
+      if (t >= segments[i].start && t <= segments[i].end) { idx = i; break; }
+    }
+    if (idx === currentSegIdx) return;
+    currentSegIdx = idx;
+
+    // Overlay
+    if (idx >= 0) {
+      overlay.textContent = segments[idx].text;
+      overlay.style.display = "block";
+    } else {
+      overlay.style.display = "none";
+    }
+
+    // Highlight in list
+    document.querySelectorAll(".sub-item").forEach((el, i) => {
+      el.classList.toggle("active", i === idx);
+    });
+
+    // Auto-scroll
+    if (idx >= 0) {
+      const activeEl = subtitleList.querySelector(".sub-item.active");
+      if (activeEl) activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  // ── Transcription ─────────────────────────────────────────
+  transcribeBtn.addEventListener("click", async () => {
+    if (!currentFilename) { alert("請先上傳影片"); return; }
+
+    transcribeBtn.disabled = true;
+    subtitleList.innerHTML = "";
+    subtitleList.style.display = "none";
+    subtitleEmpty.style.display = "none";
+    exportBtn.style.display = "none";
+    loadingDiv.style.display = "flex";
+    loadingText.textContent = "正在分析語音，請稍候（視影片長度可能需要數分鐘）…";
+
+    const model = modelSelect.value;
+    const language = langSelect.value;
+
+    try {
+      const res = await fetch(`/transcribe/${encodeURIComponent(currentFilename)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, language }),
+      });
+      const data = await res.json();
+
+      if (!data.success) throw new Error(data.error || "辨識失敗");
+
+      segments = data.segments;
+      renderSubtitles(segments);
+      loadingDiv.style.display = "none";
+      subtitleList.style.display = "block";
+      exportBtn.style.display = "inline-block";
+    } catch (err) {
+      loadingDiv.style.display = "none";
+      subtitleEmpty.style.display = "flex";
+      subtitleEmpty.textContent = "錯誤：" + err.message;
+    } finally {
+      transcribeBtn.disabled = false;
+    }
+  });
+
+  function renderSubtitles(segs) {
+    subtitleList.innerHTML = "";
+    segs.forEach((seg, i) => {
+      const div = document.createElement("div");
+      div.className = "sub-item";
+      div.innerHTML = `
+        <div class="sub-times">
+          <span class="sub-time">${formatTimestamp(seg.start)}</span>
+          <span class="sub-time">${formatTimestamp(seg.end)}</span>
+        </div>
+        <div class="sub-text">${escapeHtml(seg.text)}</div>
+      `;
+      div.addEventListener("click", () => {
+        video.currentTime = seg.start;
+        if (video.paused) video.play();
+      });
+      subtitleList.appendChild(div);
+    });
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  // ── Export SRT ────────────────────────────────────────────
+  exportBtn.addEventListener("click", async () => {
+    if (!segments.length) return;
+    const res = await fetch(`/export_srt/${encodeURIComponent(currentFilename)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ segments }),
+    });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = (currentFilename.replace(/\.[^.]+$/, "") || "subtitle") + ".srt";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // ── Keyboard shortcuts ────────────────────────────────────
+  document.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+    if (e.code === "Space") { e.preventDefault(); video.paused ? video.play() : video.pause(); }
+    if (e.code === "ArrowLeft")  { video.currentTime = Math.max(0, video.currentTime - 5); }
+    if (e.code === "ArrowRight") { video.currentTime = Math.min(video.duration||0, video.currentTime + 5); }
+  });
+</script>
+</body>
+</html>
