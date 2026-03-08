@@ -9,35 +9,39 @@
 ### 1. 首頁上傳介面
 拖曳或點擊上傳影片，支援 MP4、MKV、MOV、AVI、WebM 等格式。
 
-![上傳介面](docs/screenshots/01_upload.png)
+![上傳介面](docs/screenshots/VIDEOUPLOAD.png)
+
+![上傳介面](docs/screenshots/MAIN.png)
 
 ---
 
 ### 2. 影片預覽 + 字幕清單
 左側影片播放器搭配可拖拉時間軸；右側依時間順序列出每段字幕的開始／結束時間與文字。
 
-![主介面](docs/screenshots/02_main.png)
+![主介面](docs/screenshots/MAIN_GENERTATED.png)
 
 ---
 
 ### 3. 字幕即時同步
 影片播放時，當前字幕自動高亮（橘色左邊框）並滾動至可視範圍，同時疊加顯示於影片畫面下方。
 
-![字幕同步](docs/screenshots/03_subtitle_sync.png)
+![字幕同步](docs/screenshots/LETTER.png)
 
 ---
 
 ### 4. 模型與語言選擇
 右上角可選擇 Whisper 模型大小（Tiny → Large）與辨識語言（自動偵測或手動指定）。
 
-![設定選項](docs/screenshots/04_settings.png)
+![模型選項](docs/screenshots/MODEL_CHOSE.png)
+
+![語言選項](docs/screenshots/LANGUAGE.png)
 
 ---
 
 ### 5. 匯出 SRT
 字幕產生後，點擊「匯出 SRT」即可下載標準格式字幕檔，可直接匯入 Premiere、DaVinci Resolve 等剪輯軟體。
 
-![匯出SRT](docs/screenshots/05_export.png)
+![匯出SRT](docs/screenshots)
 
 ---
 
